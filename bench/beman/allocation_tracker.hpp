@@ -17,23 +17,16 @@
 
 static std::atomic<int64_t> g_alloc_count{0};
 
-void* operator new(std::size_t n)
-{
-    g_alloc_count.fetch_add(1, std::memory_order_relaxed);
-    void* p = std::malloc(n);
-    if (!p)
-        throw std::bad_alloc();
-    return p;
+void *operator new(std::size_t n) {
+  g_alloc_count.fetch_add(1, std::memory_order_relaxed);
+  void *p = std::malloc(n);
+  if (!p)
+    throw std::bad_alloc();
+  return p;
 }
 
-void operator delete(void* p) noexcept
-{
-    std::free(p);
-}
+void operator delete(void *p) noexcept { std::free(p); }
 
-void operator delete(void* p, std::size_t) noexcept
-{
-    std::free(p);
-}
+void operator delete(void *p, std::size_t) noexcept { std::free(p); }
 
 #endif

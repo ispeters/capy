@@ -32,48 +32,38 @@ namespace boost::capy {
 
 namespace detail {
 
-template<class T, class = void>
-struct has_tuple_protocol : std::false_type {};
+template <class T, class = void> struct has_tuple_protocol : std::false_type {};
 
-template<class T>
+template <class T>
 struct has_tuple_protocol<T,
-    std::void_t<
-        typename std::tuple_size<T>::type,
-        typename std::tuple_element<0, T>::type>>
+                          std::void_t<typename std::tuple_size<T>::type,
+                                      typename std::tuple_element<0, T>::type>>
     : std::true_type {};
 
-template<class T, bool = has_tuple_protocol<T>::value>
+template <class T, bool = has_tuple_protocol<T>::value>
 struct is_ec_outcome : std::is_same<T, std::error_code> {};
 
-template<class T>
+template <class T>
 struct is_ec_outcome<T, true>
     : std::bool_constant<
-        std::tuple_size_v<T> == 1 &&
-        std::is_same_v<
-            std::tuple_element_t<0, T>,
-            std::error_code>>
-{};
+          std::tuple_size_v<T> == 1 &&
+          std::is_same_v<std::tuple_element_t<0, T>, std::error_code>> {};
 
-template<class T>
+template <class T>
 constexpr bool is_ec_outcome_v =
-    std::is_same_v<T, std::error_code> ||
-    is_ec_outcome<T>::value;
+    std::is_same_v<T, std::error_code> || is_ec_outcome<T>::value;
 
-template<class T, bool = has_tuple_protocol<T>::value>
+template <class T, bool = has_tuple_protocol<T>::value>
 struct is_compound_ec_result : std::false_type {};
 
-template<class T>
+template <class T>
 struct is_compound_ec_result<T, true>
     : std::bool_constant<
-        std::tuple_size_v<T> >= 2 &&
-        std::is_same_v<
-            std::tuple_element_t<0, T>,
-            std::error_code>>
-{};
+          std::tuple_size_v<T> >= 2 &&
+          std::is_same_v<std::tuple_element_t<0, T>, std::error_code>> {};
 
-template<class T>
-constexpr bool is_compound_ec_result_v =
-    is_compound_ec_result<T>::value;
+template <class T>
+constexpr bool is_compound_ec_result_v = is_compound_ec_result<T>::value;
 
 // -------------------------------------------------------
 // frame_cb: synthetic coroutine frame for callback handles
@@ -84,11 +74,10 @@ constexpr bool is_compound_ec_result_v =
 // pointer and whose .destroy() is a no-op.
 // -------------------------------------------------------
 
-struct frame_cb
-{
-    void (*resume)(frame_cb*);
-    void (*destroy)(frame_cb*);
-    void* data;
+struct frame_cb {
+  void (*resume)(frame_cb *);
+  void (*destroy)(frame_cb *);
+  void *data;
 };
 
 } // namespace detail
@@ -97,222 +86,158 @@ struct frame_cb
 // Sender that wraps an IoAwaitable
 // -------------------------------------------------------
 
-template<class IoAw>
-struct awaitable_sender
-{
-    using sender_concept = beman::execution::sender_t;
+template <class IoAw> struct awaitable_sender {
+  using sender_concept = beman::execution::sender_t;
 
-    using result_type = decltype(
-        std::declval<std::decay_t<IoAw>&>().await_resume());
+  using result_type =
+      decltype(std::declval<std::decay_t<IoAw> &>().await_resume());
 
-    static auto make_sigs()
-    {
-        if constexpr (std::is_void_v<result_type>)
-            return beman::execution::completion_signatures<
-                beman::execution::set_value_t(),
-                beman::execution::set_error_t(std::exception_ptr),
-                beman::execution::set_stopped_t()>{};
-        else if constexpr (
-            detail::is_compound_ec_result_v<result_type>)
-            return beman::execution::completion_signatures<
-                beman::execution::set_value_t(
-                    std::tuple_element_t<1, result_type>),
-                beman::execution::set_error_t(std::error_code),
-                beman::execution::set_error_t(std::exception_ptr),
-                beman::execution::set_stopped_t()>{};
-        else if constexpr (
-            detail::is_ec_outcome_v<result_type>)
-            return beman::execution::completion_signatures<
-                beman::execution::set_value_t(),
-                beman::execution::set_error_t(std::error_code),
-                beman::execution::set_error_t(std::exception_ptr),
-                beman::execution::set_stopped_t()>{};
-        else
-            return beman::execution::completion_signatures<
-                beman::execution::set_value_t(result_type),
-                beman::execution::set_error_t(std::exception_ptr),
-                beman::execution::set_stopped_t()>{};
-    }
+  static auto make_sigs() {
+    if constexpr (std::is_void_v<result_type>)
+      return beman::execution::completion_signatures<
+          beman::execution::set_value_t(),
+          beman::execution::set_error_t(std::exception_ptr),
+          beman::execution::set_stopped_t()>{};
+    else if constexpr (detail::is_compound_ec_result_v<result_type>)
+      return beman::execution::completion_signatures<
+          beman::execution::set_value_t(std::tuple_element_t<1, result_type>),
+          beman::execution::set_error_t(std::error_code),
+          beman::execution::set_error_t(std::exception_ptr),
+          beman::execution::set_stopped_t()>{};
+    else if constexpr (detail::is_ec_outcome_v<result_type>)
+      return beman::execution::completion_signatures<
+          beman::execution::set_value_t(),
+          beman::execution::set_error_t(std::error_code),
+          beman::execution::set_error_t(std::exception_ptr),
+          beman::execution::set_stopped_t()>{};
+    else
+      return beman::execution::completion_signatures<
+          beman::execution::set_value_t(result_type),
+          beman::execution::set_error_t(std::exception_ptr),
+          beman::execution::set_stopped_t()>{};
+  }
 
-    using completion_signatures = decltype(make_sigs());
+  using completion_signatures = decltype(make_sigs());
+
+  IoAw aw_;
+
+  template <class Receiver> struct op_state {
+    using operation_state_concept = beman::execution::operation_state_t;
 
     IoAw aw_;
+    Receiver rcvr_;
+    sender_as_capy_executor adapter_;
+    io_env env_;
+    detail::frame_cb cb_;
 
-    template<class Receiver>
-    struct op_state
-    {
-        using operation_state_concept =
-            beman::execution::operation_state_t;
+    op_state(IoAw aw, Receiver rcvr)
+        : aw_(std::move(aw)), rcvr_(std::move(rcvr)), adapter_{}, cb_{} {}
 
-        IoAw aw_;
-        Receiver rcvr_;
-        sender_as_capy_executor adapter_;
-        io_env env_;
-        detail::frame_cb cb_;
+    op_state(op_state const &) = delete;
+    op_state(op_state &&) = delete;
+    op_state &operator=(op_state const &) = delete;
+    op_state &operator=(op_state &&) = delete;
 
-        op_state(IoAw aw, Receiver rcvr)
-            : aw_(std::move(aw))
-            , rcvr_(std::move(rcvr))
-            , adapter_{}
-            , cb_{}
-        {
-        }
+    static void on_resume(detail::frame_cb *p) noexcept {
+      auto *self = static_cast<op_state *>(p->data);
+      self->complete();
+    }
 
-        op_state(op_state const&) = delete;
-        op_state(op_state&&) = delete;
-        op_state& operator=(op_state const&) = delete;
-        op_state& operator=(op_state&&) = delete;
+    static void on_destroy(detail::frame_cb *) noexcept {}
 
-        static void
-        on_resume(detail::frame_cb* p) noexcept
-        {
-            auto* self = static_cast<op_state*>(p->data);
-            self->complete();
-        }
-
-        static void
-        on_destroy(detail::frame_cb*) noexcept
-        {
-        }
-
-        void complete() noexcept
-        {
-            try
-            {
-                if constexpr (std::is_void_v<result_type>)
-                {
-                    aw_.await_resume();
-                    if(env_.stop_token.stop_requested())
-                        beman::execution::set_stopped(
-                            std::move(rcvr_));
-                    else
-                        beman::execution::set_value(
-                            std::move(rcvr_));
-                }
-                else if constexpr (
-                    detail::is_compound_ec_result_v<result_type>)
-                {
-                    auto result = aw_.await_resume();
-                    if(env_.stop_token.stop_requested())
-                    {
-                        beman::execution::set_stopped(
-                            std::move(rcvr_));
-                    }
-                    else
-                    {
-                        auto ec = get<0>(result);
-                        if(!ec)
-                            beman::execution::set_value(
-                                std::move(rcvr_),
-                                get<1>(std::move(result)));
-                        else
-                            beman::execution::set_error(
-                                std::move(rcvr_), ec);
-                    }
-                }
-                else if constexpr (
-                    detail::is_ec_outcome_v<result_type>)
-                {
-                    auto result = aw_.await_resume();
-                    if(env_.stop_token.stop_requested())
-                    {
-                        beman::execution::set_stopped(
-                            std::move(rcvr_));
-                    }
-                    else
-                    {
-                        std::error_code ec;
-                        if constexpr (std::is_same_v<
-                            result_type, std::error_code>)
-                            ec = result;
-                        else
-                            ec = get<0>(result);
-                        if(!ec)
-                            beman::execution::set_value(
-                                std::move(rcvr_));
-                        else
-                            beman::execution::set_error(
-                                std::move(rcvr_), ec);
-                    }
-                }
-                else
-                {
-                    auto result = aw_.await_resume();
-                    if(env_.stop_token.stop_requested())
-                        beman::execution::set_stopped(
-                            std::move(rcvr_));
-                    else
-                        beman::execution::set_value(
-                            std::move(rcvr_),
-                            std::move(result));
-                }
-            }
-            catch(...)
-            {
-                beman::execution::set_error(
-                    std::move(rcvr_),
-                    std::current_exception());
-            }
-        }
-
-        static sender_executor extract_executor(auto const& renv)
-        {
-            if constexpr (requires {
-                get_sender_executor(renv); })
-                return get_sender_executor(renv);
+    void complete() noexcept {
+      try {
+        if constexpr (std::is_void_v<result_type>) {
+          aw_.await_resume();
+          if (env_.stop_token.stop_requested())
+            beman::execution::set_stopped(std::move(rcvr_));
+          else
+            beman::execution::set_value(std::move(rcvr_));
+        } else if constexpr (detail::is_compound_ec_result_v<result_type>) {
+          auto result = aw_.await_resume();
+          if (env_.stop_token.stop_requested()) {
+            beman::execution::set_stopped(std::move(rcvr_));
+          } else {
+            auto ec = get<0>(result);
+            if (!ec)
+              beman::execution::set_value(std::move(rcvr_),
+                                          get<1>(std::move(result)));
             else
-                return beman::execution::get_scheduler(
-                    renv).ex_;
+              beman::execution::set_error(std::move(rcvr_), ec);
+          }
+        } else if constexpr (detail::is_ec_outcome_v<result_type>) {
+          auto result = aw_.await_resume();
+          if (env_.stop_token.stop_requested()) {
+            beman::execution::set_stopped(std::move(rcvr_));
+          } else {
+            std::error_code ec;
+            if constexpr (std::is_same_v<result_type, std::error_code>)
+              ec = result;
+            else
+              ec = get<0>(result);
+            if (!ec)
+              beman::execution::set_value(std::move(rcvr_));
+            else
+              beman::execution::set_error(std::move(rcvr_), ec);
+          }
+        } else {
+          auto result = aw_.await_resume();
+          if (env_.stop_token.stop_requested())
+            beman::execution::set_stopped(std::move(rcvr_));
+          else
+            beman::execution::set_value(std::move(rcvr_), std::move(result));
         }
-
-        void start() noexcept
-        {
-            auto renv = beman::execution::get_env(rcvr_);
-            adapter_ = sender_as_capy_executor{
-                extract_executor(renv)};
-
-            std::stop_token st;
-            if constexpr (requires {
-                { renv.query(beman::execution::get_stop_token_t{}) }
-                    -> std::convertible_to<std::stop_token>; })
-            {
-                st = renv.query(
-                    beman::execution::get_stop_token_t{});
-            }
-
-            env_ = io_env{adapter_, st, nullptr};
-
-            if(aw_.await_ready())
-            {
-                complete();
-                return;
-            }
-
-            cb_.resume = &on_resume;
-            cb_.destroy = &on_destroy;
-            cb_.data = this;
-
-            auto h = std::coroutine_handle<>::from_address(
-                static_cast<void*>(&cb_));
-
-            detail::call_await_suspend(&aw_, h, &env_);
-        }
-    };
-
-    template<class Receiver>
-    auto connect(Receiver rcvr) &&
-        -> op_state<Receiver>
-    {
-        return op_state<Receiver>(
-            std::move(aw_), std::move(rcvr));
+      } catch (...) {
+        beman::execution::set_error(std::move(rcvr_), std::current_exception());
+      }
     }
 
-    template<class Receiver>
-    auto connect(Receiver rcvr) const&
-        -> op_state<Receiver>
-    {
-        return op_state<Receiver>(aw_, std::move(rcvr));
+    static sender_executor extract_executor(auto const &renv) {
+      if constexpr (requires { get_sender_executor(renv); })
+        return get_sender_executor(renv);
+      else
+        return beman::execution::get_scheduler(renv).ex_;
     }
+
+    void start() noexcept {
+      auto renv = beman::execution::get_env(rcvr_);
+      adapter_ = sender_as_capy_executor{extract_executor(renv)};
+
+      std::stop_token st;
+      if constexpr (requires {
+                      {
+                        renv.query(beman::execution::get_stop_token_t{})
+                      } -> std::convertible_to<std::stop_token>;
+                    }) {
+        st = renv.query(beman::execution::get_stop_token_t{});
+      }
+
+      env_ = io_env{adapter_, st, nullptr};
+
+      if (aw_.await_ready()) {
+        complete();
+        return;
+      }
+
+      cb_.resume = &on_resume;
+      cb_.destroy = &on_destroy;
+      cb_.data = this;
+
+      auto h = std::coroutine_handle<>::from_address(static_cast<void *>(&cb_));
+
+      detail::call_await_suspend(&aw_, h, &env_);
+    }
+  };
+
+  template <class Receiver>
+  auto connect(Receiver rcvr) && -> op_state<Receiver> {
+    return op_state<Receiver>(std::move(aw_), std::move(rcvr));
+  }
+
+  template <class Receiver>
+  auto connect(Receiver rcvr) const & -> op_state<Receiver> {
+    return op_state<Receiver>(aw_, std::move(rcvr));
+  }
 };
 
 /** Create a beman::execution sender from an IoAwaitable.
@@ -341,11 +266,8 @@ struct awaitable_sender
     @return A sender whose completion channels reflect
         the awaitable's result type.
 */
-template<class IoAw>
-auto as_sender(IoAw&& aw)
-{
-    return awaitable_sender<std::decay_t<IoAw>>{
-        std::forward<IoAw>(aw)};
+template <class IoAw> auto as_sender(IoAw &&aw) {
+  return awaitable_sender<std::decay_t<IoAw>>{std::forward<IoAw>(aw)};
 }
 
 // -------------------------------------------------------
@@ -355,109 +277,73 @@ auto as_sender(IoAw&& aw)
 
 namespace detail {
 
-template<class Sender>
-struct split_ec_sender
-{
-    using sender_concept = beman::execution::sender_t;
+template <class Sender> struct split_ec_sender {
+  using sender_concept = beman::execution::sender_t;
 
-    using completion_signatures =
-        beman::execution::completion_signatures<
-            beman::execution::set_value_t(),
-            beman::execution::set_error_t(std::error_code),
-            beman::execution::set_error_t(std::exception_ptr),
-            beman::execution::set_stopped_t()>;
+  using completion_signatures = beman::execution::completion_signatures<
+      beman::execution::set_value_t(),
+      beman::execution::set_error_t(std::error_code),
+      beman::execution::set_error_t(std::exception_ptr),
+      beman::execution::set_stopped_t()>;
 
-    Sender sndr_;
+  Sender sndr_;
 
-    template<class Receiver>
-    struct ec_receiver
-    {
-        using receiver_concept = beman::execution::receiver_t;
+  template <class Receiver> struct ec_receiver {
+    using receiver_concept = beman::execution::receiver_t;
 
-        Receiver rcvr_;
+    Receiver rcvr_;
 
-        auto get_env() const noexcept
-        {
-            return beman::execution::get_env(rcvr_);
-        }
+    auto get_env() const noexcept { return beman::execution::get_env(rcvr_); }
 
-        void set_value(std::error_code ec) && noexcept
-        {
-            if (!ec)
-                beman::execution::set_value(
-                    std::move(rcvr_));
-            else
-                beman::execution::set_error(
-                    std::move(rcvr_), ec);
-        }
-
-        void set_value() && noexcept
-        {
-            beman::execution::set_value(
-                std::move(rcvr_));
-        }
-
-        template<class E>
-        void set_error(E&& e) && noexcept
-        {
-            beman::execution::set_error(
-                std::move(rcvr_),
-                std::forward<E>(e));
-        }
-
-        void set_stopped() && noexcept
-        {
-            beman::execution::set_stopped(
-                std::move(rcvr_));
-        }
-    };
-
-    template<class Receiver>
-    struct op_state
-    {
-        using operation_state_concept =
-            beman::execution::operation_state_t;
-
-        using inner_op_t = decltype(
-            beman::execution::connect(
-                std::declval<Sender>(),
-                std::declval<ec_receiver<Receiver>>()));
-
-        inner_op_t op_;
-
-        op_state(Sender sndr, Receiver rcvr)
-            : op_(beman::execution::connect(
-                std::move(sndr),
-                ec_receiver<Receiver>{std::move(rcvr)}))
-        {
-        }
-
-        op_state(op_state const&) = delete;
-        op_state(op_state&&) = delete;
-        op_state& operator=(op_state const&) = delete;
-        op_state& operator=(op_state&&) = delete;
-
-        void start() noexcept
-        {
-            beman::execution::start(op_);
-        }
-    };
-
-    template<class Receiver>
-    auto connect(Receiver rcvr) &&
-        -> op_state<Receiver>
-    {
-        return op_state<Receiver>(
-            std::move(sndr_), std::move(rcvr));
+    void set_value(std::error_code ec) && noexcept {
+      if (!ec)
+        beman::execution::set_value(std::move(rcvr_));
+      else
+        beman::execution::set_error(std::move(rcvr_), ec);
     }
 
-    template<class Receiver>
-    auto connect(Receiver rcvr) const&
-        -> op_state<Receiver>
-    {
-        return op_state<Receiver>(
-            sndr_, std::move(rcvr));
+    void set_value() && noexcept {
+      beman::execution::set_value(std::move(rcvr_));
     }
+
+    template <class E> void set_error(E &&e) && noexcept {
+      beman::execution::set_error(std::move(rcvr_), std::forward<E>(e));
+    }
+
+    void set_stopped() && noexcept {
+      beman::execution::set_stopped(std::move(rcvr_));
+    }
+  };
+
+  template <class Receiver> struct op_state {
+    using operation_state_concept = beman::execution::operation_state_t;
+
+    using inner_op_t = decltype(beman::execution::connect(
+        std::declval<Sender>(), std::declval<ec_receiver<Receiver>>()));
+
+    inner_op_t op_;
+
+    op_state(Sender sndr, Receiver rcvr)
+        : op_(beman::execution::connect(
+              std::move(sndr), ec_receiver<Receiver>{std::move(rcvr)})) {}
+
+    op_state(op_state const &) = delete;
+    op_state(op_state &&) = delete;
+    op_state &operator=(op_state const &) = delete;
+    op_state &operator=(op_state &&) = delete;
+
+    void start() noexcept { beman::execution::start(op_); }
+  };
+
+  template <class Receiver>
+  auto connect(Receiver rcvr) && -> op_state<Receiver> {
+    return op_state<Receiver>(std::move(sndr_), std::move(rcvr));
+  }
+
+  template <class Receiver>
+  auto connect(Receiver rcvr) const & -> op_state<Receiver> {
+    return op_state<Receiver>(sndr_, std::move(rcvr));
+  }
 };
 
 } // namespace detail
@@ -482,12 +368,9 @@ struct split_ec_sender
     @return A sender completing with `set_value()`,
         `set_error(error_code)`, or `set_stopped()`.
 */
-template<class Sender>
-auto split_ec(Sender&& sndr)
-{
-    return detail::split_ec_sender<
-        std::decay_t<Sender>>{
-            std::forward<Sender>(sndr)};
+template <class Sender> auto split_ec(Sender &&sndr) {
+  return detail::split_ec_sender<std::decay_t<Sender>>{
+      std::forward<Sender>(sndr)};
 }
 
 } // namespace boost::capy

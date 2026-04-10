@@ -34,171 +34,126 @@
 // Minimal execution_context for running capy::task on
 // sender_thread_pool. Provides the frame allocator that
 // capy::run_async needs.
-struct bench_context : boost::capy::execution_context
-{
-    bench_context() : execution_context(this) {}
-    ~bench_context() { shutdown(); destroy(); }
+struct bench_context : boost::capy::execution_context {
+  bench_context() : execution_context(this) {}
+  ~bench_context() {
+    shutdown();
+    destroy();
+  }
 };
 
 // Adapter making sender_executor satisfy capy's Executor
 // concept so capy::task can run on sender_thread_pool.
-struct sender_as_capy_executor
-{
-    sender_executor ex_;
-    bench_context* ctx_;
+struct sender_as_capy_executor {
+  sender_executor ex_;
+  bench_context *ctx_;
 
-    boost::capy::execution_context& context() const noexcept
-    {
-        return *ctx_;
-    }
+  boost::capy::execution_context &context() const noexcept { return *ctx_; }
 
-    void on_work_started() const noexcept
-    {
-        ex_.pool_->on_work_started();
-    }
+  void on_work_started() const noexcept { ex_.pool_->on_work_started(); }
 
-    void on_work_finished() const noexcept
-    {
-        ex_.pool_->on_work_finished();
-    }
+  void on_work_finished() const noexcept { ex_.pool_->on_work_finished(); }
 
-    void post(boost::capy::continuation& c) const
-    {
-        ex_.post(c.h);
-    }
+  void post(boost::capy::continuation &c) const { ex_.post(c.h); }
 
-    // Return the handle for symmetric transfer so the
-    // caller resumes the coroutine inline. Posting would
-    // cause a lifetime issue since run_async expects to
-    // hand off ownership via symmetric transfer.
-    std::coroutine_handle<>
-    dispatch(boost::capy::continuation& c) const
-    {
-        return c.h;
-    }
+  // Return the handle for symmetric transfer so the
+  // caller resumes the coroutine inline. Posting would
+  // cause a lifetime issue since run_async expects to
+  // hand off ownership via symmetric transfer.
+  std::coroutine_handle<> dispatch(boost::capy::continuation &c) const {
+    return c.h;
+  }
 
-    bool operator==(
-        sender_as_capy_executor const&) const noexcept = default;
+  bool operator==(sender_as_capy_executor const &) const noexcept = default;
 };
 
 namespace ex = beman::execution;
 
-struct get_sender_executor_t
-{
-    constexpr bool query(
-        ex::forwarding_query_t const&) const noexcept
-    {
-        return true;
-    }
+struct get_sender_executor_t {
+  constexpr bool query(ex::forwarding_query_t const &) const noexcept {
+    return true;
+  }
 
-    template <typename Env>
-        requires requires(Env const& env) {
-            env.query(std::declval<get_sender_executor_t const&>());
-        }
-    auto operator()(Env const& env) const noexcept
-    {
-        return env.query(*this);
+  template <typename Env>
+    requires requires(Env const &env) {
+      env.query(std::declval<get_sender_executor_t const &>());
     }
+  auto operator()(Env const &env) const noexcept {
+    return env.query(*this);
+  }
 };
 inline constexpr get_sender_executor_t get_sender_executor{};
 
-struct pool_scheduler
-{
-    using scheduler_concept = ex::scheduler_t;
+struct pool_scheduler {
+  using scheduler_concept = ex::scheduler_t;
+
+  sender_executor ex_;
+
+  struct env {
+    sender_executor ex_;
+    auto query(ex::get_completion_scheduler_t<ex::set_value_t> const &)
+        const noexcept {
+      return pool_scheduler{ex_};
+    }
+
+    auto query(get_sender_executor_t const &) const noexcept
+        -> sender_executor {
+      return ex_;
+    }
+  };
+
+  template <ex::receiver Receiver> struct op_state : work_item {
+    using operation_state_concept = ex::operation_state_t;
+
+    std::remove_cvref_t<Receiver> rcvr_;
+    sender_executor ex_;
+
+    op_state(Receiver rcvr, sender_executor ex)
+        : rcvr_(std::move(rcvr)), ex_(ex) {}
+
+    op_state(op_state const &) = delete;
+    op_state(op_state &&) = delete;
+    op_state &operator=(op_state const &) = delete;
+    op_state &operator=(op_state &&) = delete;
+
+    void execute() noexcept override { ex::set_value(std::move(rcvr_)); }
+
+    void start() & noexcept { ex_.enqueue(this); }
+  };
+
+  struct sender {
+    using sender_concept = ex::sender_t;
+    using completion_signatures = ex::completion_signatures<ex::set_value_t()>;
 
     sender_executor ex_;
 
-    struct env
-    {
-        sender_executor ex_;
-        auto query(
-            ex::get_completion_scheduler_t<ex::set_value_t> const&
-        ) const noexcept
-        {
-            return pool_scheduler{ex_};
-        }
-
-        auto query(
-            get_sender_executor_t const&
-        ) const noexcept -> sender_executor
-        {
-            return ex_;
-        }
-    };
+    auto get_env() const noexcept { return env{ex_}; }
 
     template <ex::receiver Receiver>
-    struct op_state : work_item
-    {
-        using operation_state_concept = ex::operation_state_t;
+    auto connect(Receiver &&rcvr) -> op_state<std::remove_cvref_t<Receiver>> {
+      return {std::forward<Receiver>(rcvr), ex_};
+    }
+  };
 
-        std::remove_cvref_t<Receiver> rcvr_;
-        sender_executor ex_;
-
-        op_state(Receiver rcvr, sender_executor ex)
-            : rcvr_(std::move(rcvr))
-            , ex_(ex)
-        {}
-
-        op_state(op_state const&) = delete;
-        op_state(op_state&&) = delete;
-        op_state& operator=(op_state const&) = delete;
-        op_state& operator=(op_state&&) = delete;
-
-        void execute() noexcept override
-        {
-            ex::set_value(std::move(rcvr_));
-        }
-
-        void start() & noexcept
-        {
-            ex_.enqueue(this);
-        }
-    };
-
-    struct sender
-    {
-        using sender_concept = ex::sender_t;
-        using completion_signatures =
-            ex::completion_signatures<ex::set_value_t()>;
-
-        sender_executor ex_;
-
-        auto get_env() const noexcept { return env{ex_}; }
-
-        template <ex::receiver Receiver>
-        auto connect(Receiver&& rcvr)
-            -> op_state<std::remove_cvref_t<Receiver>>
-        {
-            return {std::forward<Receiver>(rcvr), ex_};
-        }
-    };
-
-    auto schedule() -> sender { return {ex_}; }
-    bool operator==(pool_scheduler const&) const = default;
+  auto schedule() -> sender { return {ex_}; }
+  bool operator==(pool_scheduler const &) const = default;
 };
 
-struct io_env
-{
-    using scheduler_type = pool_scheduler;
-    using allocator_type = std::pmr::polymorphic_allocator<std::byte>;
+struct io_env {
+  using scheduler_type = pool_scheduler;
+  using allocator_type = std::pmr::polymorphic_allocator<std::byte>;
 
-    sender_executor executor;
+  sender_executor executor;
 
-    auto query(
-        get_sender_executor_t const&) const noexcept -> sender_executor
-    {
-        return executor;
-    }
+  auto query(get_sender_executor_t const &) const noexcept -> sender_executor {
+    return executor;
+  }
 
-    io_env() = default;
+  io_env() = default;
 
-    template <typename Env>
-        requires requires(Env const& e) {
-            pool_scheduler{ex::get_scheduler(e)};
-        }
-    io_env(Env const& e)
-        : executor(pool_scheduler{ex::get_scheduler(e)}.ex_)
-    {}
+  template <typename Env>
+    requires requires(Env const &e) { pool_scheduler{ex::get_scheduler(e)}; }
+  io_env(Env const &e) : executor(pool_scheduler{ex::get_scheduler(e)}.ex_) {}
 };
 
 #endif

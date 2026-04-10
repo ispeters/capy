@@ -13,24 +13,21 @@
 #include "ioaw_read_stream.hpp"
 
 /// Abstract interface for IoAwaitable read streams.
-struct ioaw_io_read_stream
-{
-    virtual ioaw_read_stream::read_awaitable
-        read_some(boost::capy::mutable_buffer) = 0;
-    virtual ~ioaw_io_read_stream() = default;
+struct ioaw_io_read_stream {
+  virtual ioaw_read_stream::read_awaitable
+      read_some(boost::capy::mutable_buffer) = 0;
+  virtual ~ioaw_io_read_stream() = default;
 };
 
 /// Concrete implementation of ioaw_io_read_stream wrapping
 /// an ioaw_read_stream.
-struct ioaw_io_read_stream_impl : ioaw_io_read_stream
-{
-    ioaw_read_stream stream_;
+struct ioaw_io_read_stream_impl : ioaw_io_read_stream {
+  ioaw_read_stream stream_;
 
-    ioaw_read_stream::read_awaitable
-        read_some(boost::capy::mutable_buffer buf) override
-    {
-        return stream_.read_some(buf);
-    }
+  ioaw_read_stream::read_awaitable
+  read_some(boost::capy::mutable_buffer buf) override {
+    return stream_.read_some(buf);
+  }
 };
 
 #endif

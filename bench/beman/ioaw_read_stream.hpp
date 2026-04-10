@@ -23,33 +23,28 @@
 /// Uses the executor from io_env (passed by capy::task's
 /// transform_awaiter) to post the coroutine back. Satisfies
 /// ReadStream so it can be wrapped by capy::any_read_stream.
-struct ioaw_read_stream
-{
-    struct read_awaitable
-    {
-        boost::capy::continuation cont_{};
+struct ioaw_read_stream {
+  struct read_awaitable {
+    boost::capy::continuation cont_{};
 
-        bool await_ready() const noexcept { return false; }
+    bool await_ready() const noexcept { return false; }
 
-        std::coroutine_handle<>
-        await_suspend(
-            std::coroutine_handle<> h,
-            boost::capy::io_env const* env)
-        {
-            cont_.h = h;
-            env->executor.post(cont_);
-            return std::noop_coroutine();
-        }
-
-        boost::capy::io_result<std::size_t>
-        await_resume() noexcept { return {{}, 0}; }
-    };
-
-    template <boost::capy::MutableBufferSequence MB>
-    read_awaitable read_some(MB)
-    {
-        return {};
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> h,
+                                          boost::capy::io_env const *env) {
+      cont_.h = h;
+      env->executor.post(cont_);
+      return std::noop_coroutine();
     }
+
+    boost::capy::io_result<std::size_t> await_resume() noexcept {
+      return {{}, 0};
+    }
+  };
+
+  template <boost::capy::MutableBufferSequence MB>
+  read_awaitable read_some(MB) {
+    return {};
+  }
 };
 
 static_assert(boost::capy::ReadStream<ioaw_read_stream>);

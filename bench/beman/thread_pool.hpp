@@ -16,54 +16,49 @@
 
 #include <cstddef>
 
-template <typename T>
-class intrusive_queue
-{
+template <typename T> class intrusive_queue {
 public:
-    class node
-    {
-        friend class intrusive_queue;
-        T* next_;
-    };
+  class node {
+    friend class intrusive_queue;
+    T *next_;
+  };
 
 private:
-    T* head_ = nullptr;
-    T* tail_ = nullptr;
+  T *head_ = nullptr;
+  T *tail_ = nullptr;
 
 public:
-    intrusive_queue() = default;
-    intrusive_queue(intrusive_queue const&) = delete;
-    intrusive_queue& operator=(intrusive_queue const&) = delete;
+  intrusive_queue() = default;
+  intrusive_queue(intrusive_queue const &) = delete;
+  intrusive_queue &operator=(intrusive_queue const &) = delete;
 
-    bool empty() const noexcept { return head_ == nullptr; }
+  bool empty() const noexcept { return head_ == nullptr; }
 
-    void push(T* w) noexcept
-    {
-        w->next_ = nullptr;
-        if (tail_)
-            tail_->next_ = w;
-        else
-            head_ = w;
-        tail_ = w;
-    }
+  void push(T *w) noexcept {
+    w->next_ = nullptr;
+    if (tail_)
+      tail_->next_ = w;
+    else
+      head_ = w;
+    tail_ = w;
+  }
 
-    T* pop() noexcept
-    {
-        if (!head_)
-            return nullptr;
-        T* w = head_;
-        head_ = head_->next_;
-        if (!head_)
-            tail_ = nullptr;
-        return w;
-    }
+  T *pop() noexcept {
+    if (!head_)
+      return nullptr;
+    T *w = head_;
+    head_ = head_->next_;
+    if (!head_)
+      tail_ = nullptr;
+    return w;
+  }
 };
 
-struct work_item : intrusive_queue<work_item>::node
-{
-    virtual void execute() noexcept = 0;
+struct work_item : intrusive_queue<work_item>::node {
+  virtual void execute() noexcept = 0;
+
 protected:
-    ~work_item() = default;
+  ~work_item() = default;
 };
 
 #endif

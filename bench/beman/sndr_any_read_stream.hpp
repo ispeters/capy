@@ -22,47 +22,38 @@
 /// a vtable, heap-allocated. Does NOT inherit from
 /// sndr_io_read_stream — this is a fully independent erasure
 /// mechanism.
-class sndr_any_read_stream
-{
-    using read_some_fn = sndr_any_read_sender(*)(
-        void*, boost::capy::mutable_buffer);
-    using destroy_fn = void(*)(void*) noexcept;
+class sndr_any_read_stream {
+  using read_some_fn = sndr_any_read_sender (*)(void *,
+                                                boost::capy::mutable_buffer);
+  using destroy_fn = void (*)(void *) noexcept;
 
-    void* stream_;
-    read_some_fn read_some_;
-    destroy_fn destroy_;
+  void *stream_;
+  read_some_fn read_some_;
+  destroy_fn destroy_;
 
 public:
-    template <class Stream>
-    explicit sndr_any_read_stream(Stream s)
-    {
-        stream_ = new Stream(std::move(s));
+  template <class Stream> explicit sndr_any_read_stream(Stream s) {
+    stream_ = new Stream(std::move(s));
 
-        read_some_ = +[](void* stor,
-            boost::capy::mutable_buffer buf)
-            -> sndr_any_read_sender
-        {
-            auto& stream = *static_cast<Stream*>(stor);
-            return sndr_any_read_sender{stream.read_some(buf)};
-        };
+    read_some_ = +[](void *stor,
+                     boost::capy::mutable_buffer buf) -> sndr_any_read_sender {
+      auto &stream = *static_cast<Stream *>(stor);
+      return sndr_any_read_sender{stream.read_some(buf)};
+    };
 
-        destroy_ = +[](void* stor) noexcept {
-            delete static_cast<Stream*>(stor);
-        };
-    }
+    destroy_ = +[](void *stor) noexcept { delete static_cast<Stream *>(stor); };
+  }
 
-    ~sndr_any_read_stream() { destroy_(stream_); }
+  ~sndr_any_read_stream() { destroy_(stream_); }
 
-    sndr_any_read_stream(sndr_any_read_stream const&) = delete;
-    sndr_any_read_stream& operator=(sndr_any_read_stream const&) = delete;
-    sndr_any_read_stream(sndr_any_read_stream&&) = delete;
-    sndr_any_read_stream& operator=(sndr_any_read_stream&&) = delete;
+  sndr_any_read_stream(sndr_any_read_stream const &) = delete;
+  sndr_any_read_stream &operator=(sndr_any_read_stream const &) = delete;
+  sndr_any_read_stream(sndr_any_read_stream &&) = delete;
+  sndr_any_read_stream &operator=(sndr_any_read_stream &&) = delete;
 
-    sndr_any_read_sender
-        read_some(boost::capy::mutable_buffer buf)
-    {
-        return read_some_(stream_, buf);
-    }
+  sndr_any_read_sender read_some(boost::capy::mutable_buffer buf) {
+    return read_some_(stream_, buf);
+  }
 };
 
 #endif
