@@ -18,7 +18,7 @@
 #ifndef BOOST_CAPY_BENCH_SNDR_ANY_READ_SENDER_HPP
 #define BOOST_CAPY_BENCH_SNDR_ANY_READ_SENDER_HPP
 
-#include <beman/execution/execution.hpp>
+#include <stdexec/execution.hpp>
 
 #include <coroutine>
 #include <cstddef>
@@ -26,7 +26,7 @@
 #include <memory>
 #include <utility>
 
-namespace ex = beman::execution;
+namespace ex = STDEXEC;
 
 class sndr_any_read_sender {
 public:
@@ -65,7 +65,8 @@ private:
 public:
   using sender_concept = ex::sender_t;
   using completion_signatures =
-      ex::completion_signatures<ex::set_value_t(std::size_t)>;
+      ex::completion_signatures<ex::set_value_t(std::size_t),
+                                ex::set_stopped_t()>;
 
   template <class Sender> explicit sndr_any_read_sender(Sender s) {
     static_assert(sizeof(Sender) <= buf_size);

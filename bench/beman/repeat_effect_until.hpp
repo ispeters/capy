@@ -6,14 +6,14 @@
 #ifndef BOOST_CAPY_BENCH_REPEAT_EFFECT_UNTIL_HPP
 #define BOOST_CAPY_BENCH_REPEAT_EFFECT_UNTIL_HPP
 
-#include <beman/execution/execution.hpp>
+#include <stdexec/execution.hpp>
 
 #include <optional>
 #include <system_error>
 #include <type_traits>
 #include <utility>
 
-namespace bex = beman::execution;
+namespace bex = STDEXEC;
 
 template <bex::sender Sndr, bex::receiver Rcvr> struct repeat_connector {
   decltype(bex::connect(std::declval<Sndr>(), std::declval<Rcvr>())) op;
@@ -38,7 +38,9 @@ inline constexpr struct repeat_effect_until_t {
         using receiver_concept = bex::receiver_t;
         state *s;
 
-        auto get_env() const noexcept { return bex::get_env(s->receiver); }
+        auto get_env() const noexcept -> bex::env_of_t<Receiver> {
+          return bex::get_env(s->receiver);
+        }
 
         void set_value() && noexcept { s->next(); }
 

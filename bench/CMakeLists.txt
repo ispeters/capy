@@ -21,19 +21,19 @@ target_link_libraries(boost_capy_bench_allocation PRIVATE Boost::capy)
 if(BOOST_CAPY_BUILD_P2300_EXAMPLES)
     include(FetchContent)
     FetchContent_Declare(
-        beman-task
-        GIT_REPOSITORY https://github.com/bemanproject/task
-        GIT_TAG 6163df9
+        stdexec-task
+        GIT_REPOSITORY https://github.com/ispeters/stdexec
+        GIT_TAG capy_bench_integration
         SYSTEM
         FIND_PACKAGE_ARGS
-            NAMES beman.task
+            NAMES stdexec.task
     )
-    FetchContent_MakeAvailable(beman-task)
+    FetchContent_MakeAvailable(stdexec-task)
 
     add_executable(boost_capy_bench_beman beman/main.cpp)
     target_compile_features(boost_capy_bench_beman PRIVATE cxx_std_23)
     target_link_libraries(boost_capy_bench_beman PRIVATE
-        Boost::capy beman::task beman::execution_headers)
+        Boost::capy STDEXEC::stdexec)
 endif()
 
 if(BUILD_SHARED_LIBS)

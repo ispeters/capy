@@ -18,7 +18,7 @@
 #include <boost/capy/ex/io_env.hpp>
 #include <boost/capy/io_result.hpp>
 
-#include <beman/execution/execution.hpp>
+#include <stdexec/execution.hpp>
 
 #include <concepts>
 #include <coroutine>
@@ -80,6 +80,17 @@ struct frame_cb {
   void *data;
 };
 
+template <class Env>
+concept sender_executor_source = requires(const Env &env) {
+  { get_sender_executor(env) };
+};
+
+template <class Env>
+concept capy_scheduler_source =
+    (!sender_executor_source<Env>) && requires(const Env &env) {
+      { STDEXEC::get_start_scheduler(env).ex_ };
+    };
+
 } // namespace detail
 
 // -------------------------------------------------------
@@ -87,34 +98,29 @@ struct frame_cb {
 // -------------------------------------------------------
 
 template <class IoAw> struct awaitable_sender {
-  using sender_concept = beman::execution::sender_t;
+  using sender_concept = STDEXEC::sender_t;
 
   using result_type =
       decltype(std::declval<std::decay_t<IoAw> &>().await_resume());
 
   static auto make_sigs() {
     if constexpr (std::is_void_v<result_type>)
-      return beman::execution::completion_signatures<
-          beman::execution::set_value_t(),
-          beman::execution::set_error_t(std::exception_ptr),
-          beman::execution::set_stopped_t()>{};
+      return STDEXEC::completion_signatures<
+          STDEXEC::set_value_t(), STDEXEC::set_error_t(std::exception_ptr),
+          STDEXEC::set_stopped_t()>{};
     else if constexpr (detail::is_compound_ec_result_v<result_type>)
-      return beman::execution::completion_signatures<
-          beman::execution::set_value_t(std::tuple_element_t<1, result_type>),
-          beman::execution::set_error_t(std::error_code),
-          beman::execution::set_error_t(std::exception_ptr),
-          beman::execution::set_stopped_t()>{};
+      return STDEXEC::completion_signatures<
+          STDEXEC::set_value_t(std::tuple_element_t<1, result_type>),
+          STDEXEC::set_error_t(std::error_code),
+          STDEXEC::set_error_t(std::exception_ptr), STDEXEC::set_stopped_t()>{};
     else if constexpr (detail::is_ec_outcome_v<result_type>)
-      return beman::execution::completion_signatures<
-          beman::execution::set_value_t(),
-          beman::execution::set_error_t(std::error_code),
-          beman::execution::set_error_t(std::exception_ptr),
-          beman::execution::set_stopped_t()>{};
+      return STDEXEC::completion_signatures<
+          STDEXEC::set_value_t(), STDEXEC::set_error_t(std::error_code),
+          STDEXEC::set_error_t(std::exception_ptr), STDEXEC::set_stopped_t()>{};
     else
-      return beman::execution::completion_signatures<
-          beman::execution::set_value_t(result_type),
-          beman::execution::set_error_t(std::exception_ptr),
-          beman::execution::set_stopped_t()>{};
+      return STDEXEC::completion_signatures<
+          STDEXEC::set_value_t(result_type),
+          STDEXEC::set_error_t(std::exception_ptr), STDEXEC::set_stopped_t()>{};
   }
 
   using completion_signatures = decltype(make_sigs());
@@ -122,7 +128,7 @@ template <class IoAw> struct awaitable_sender {
   IoAw aw_;
 
   template <class Receiver> struct op_state {
-    using operation_state_concept = beman::execution::operation_state_t;
+    using operation_state_concept = STDEXEC::operation_state_t;
 
     IoAw aw_;
     Receiver rcvr_;
@@ -150,25 +156,24 @@ template <class IoAw> struct awaitable_sender {
         if constexpr (std::is_void_v<result_type>) {
           aw_.await_resume();
           if (env_.stop_token.stop_requested())
-            beman::execution::set_stopped(std::move(rcvr_));
+            STDEXEC::set_stopped(std::move(rcvr_));
           else
-            beman::execution::set_value(std::move(rcvr_));
+            STDEXEC::set_value(std::move(rcvr_));
         } else if constexpr (detail::is_compound_ec_result_v<result_type>) {
           auto result = aw_.await_resume();
           if (env_.stop_token.stop_requested()) {
-            beman::execution::set_stopped(std::move(rcvr_));
+            STDEXEC::set_stopped(std::move(rcvr_));
           } else {
             auto ec = get<0>(result);
             if (!ec)
-              beman::execution::set_value(std::move(rcvr_),
-                                          get<1>(std::move(result)));
+              STDEXEC::set_value(std::move(rcvr_), get<1>(std::move(result)));
             else
-              beman::execution::set_error(std::move(rcvr_), ec);
+              STDEXEC::set_error(std::move(rcvr_), ec);
           }
         } else if constexpr (detail::is_ec_outcome_v<result_type>) {
           auto result = aw_.await_resume();
           if (env_.stop_token.stop_requested()) {
-            beman::execution::set_stopped(std::move(rcvr_));
+            STDEXEC::set_stopped(std::move(rcvr_));
           } else {
             std::error_code ec;
             if constexpr (std::is_same_v<result_type, std::error_code>)
@@ -176,40 +181,52 @@ template <class IoAw> struct awaitable_sender {
             else
               ec = get<0>(result);
             if (!ec)
-              beman::execution::set_value(std::move(rcvr_));
+              STDEXEC::set_value(std::move(rcvr_));
             else
-              beman::execution::set_error(std::move(rcvr_), ec);
+              STDEXEC::set_error(std::move(rcvr_), ec);
           }
         } else {
           auto result = aw_.await_resume();
           if (env_.stop_token.stop_requested())
-            beman::execution::set_stopped(std::move(rcvr_));
+            STDEXEC::set_stopped(std::move(rcvr_));
           else
-            beman::execution::set_value(std::move(rcvr_), std::move(result));
+            STDEXEC::set_value(std::move(rcvr_), std::move(result));
         }
       } catch (...) {
-        beman::execution::set_error(std::move(rcvr_), std::current_exception());
+        STDEXEC::set_error(std::move(rcvr_), std::current_exception());
       }
     }
 
+#if 0
     static sender_executor extract_executor(auto const &renv) {
       if constexpr (requires { get_sender_executor(renv); })
         return get_sender_executor(renv);
       else
-        return beman::execution::get_scheduler(renv).ex_;
+        return STDEXEC::get_scheduler(renv).ex_;
+    }
+#else
+    template <detail::sender_executor_source Env>
+    static sender_executor extract_executor(Env const &renv) {
+      return get_sender_executor(renv);
     }
 
+    template <detail::capy_scheduler_source Env>
+    static sender_executor extract_executor(Env const &renv) {
+      return STDEXEC::get_start_scheduler(renv).ex_;
+    }
+#endif
+
     void start() noexcept {
-      auto renv = beman::execution::get_env(rcvr_);
+      auto renv = STDEXEC::get_env(rcvr_);
       adapter_ = sender_as_capy_executor{extract_executor(renv)};
 
       std::stop_token st;
       if constexpr (requires {
                       {
-                        renv.query(beman::execution::get_stop_token_t{})
+                        renv.query(STDEXEC::get_stop_token_t{})
                       } -> std::convertible_to<std::stop_token>;
                     }) {
-        st = renv.query(beman::execution::get_stop_token_t{});
+        st = renv.query(STDEXEC::get_stop_token_t{});
       }
 
       env_ = io_env{adapter_, st, nullptr};
@@ -240,7 +257,7 @@ template <class IoAw> struct awaitable_sender {
   }
 };
 
-/** Create a beman::execution sender from an IoAwaitable.
+/** Create a STDEXEC sender from an IoAwaitable.
 
     The bridge routes the awaitable's result through sender
     channels based on its type:
@@ -267,7 +284,7 @@ template <class IoAw> struct awaitable_sender {
         the awaitable's result type.
 */
 template <class IoAw> auto as_sender(IoAw &&aw) {
-  return awaitable_sender<std::decay_t<IoAw>>{std::forward<IoAw>(aw)};
+  //return awaitable_sender<std::decay_t<IoAw>>{std::forward<IoAw>(aw)};
 }
 
 // -------------------------------------------------------
@@ -278,61 +295,59 @@ template <class IoAw> auto as_sender(IoAw &&aw) {
 namespace detail {
 
 template <class Sender> struct split_ec_sender {
-  using sender_concept = beman::execution::sender_t;
+  using sender_concept = STDEXEC::sender_t;
 
-  using completion_signatures = beman::execution::completion_signatures<
-      beman::execution::set_value_t(),
-      beman::execution::set_error_t(std::error_code),
-      beman::execution::set_error_t(std::exception_ptr),
-      beman::execution::set_stopped_t()>;
+  template <class Sndr, class Env>
+  static consteval auto get_completion_signatures() noexcept
+      -> STDEXEC::completion_signatures<
+          STDEXEC::set_value_t(), STDEXEC::set_error_t(std::error_code),
+          STDEXEC::set_error_t(std::exception_ptr), STDEXEC::set_stopped_t()> {
+    return {};
+  }
 
   Sender sndr_;
 
   template <class Receiver> struct ec_receiver {
-    using receiver_concept = beman::execution::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
 
     Receiver rcvr_;
 
-    auto get_env() const noexcept { return beman::execution::get_env(rcvr_); }
+    auto get_env() const noexcept { return STDEXEC::get_env(rcvr_); }
 
     void set_value(std::error_code ec) && noexcept {
       if (!ec)
-        beman::execution::set_value(std::move(rcvr_));
+        STDEXEC::set_value(std::move(rcvr_));
       else
-        beman::execution::set_error(std::move(rcvr_), ec);
+        STDEXEC::set_error(std::move(rcvr_), ec);
     }
 
-    void set_value() && noexcept {
-      beman::execution::set_value(std::move(rcvr_));
-    }
+    void set_value() && noexcept { STDEXEC::set_value(std::move(rcvr_)); }
 
     template <class E> void set_error(E &&e) && noexcept {
-      beman::execution::set_error(std::move(rcvr_), std::forward<E>(e));
+      STDEXEC::set_error(std::move(rcvr_), std::forward<E>(e));
     }
 
-    void set_stopped() && noexcept {
-      beman::execution::set_stopped(std::move(rcvr_));
-    }
+    void set_stopped() && noexcept { STDEXEC::set_stopped(std::move(rcvr_)); }
   };
 
   template <class Receiver> struct op_state {
-    using operation_state_concept = beman::execution::operation_state_t;
+    using operation_state_concept = STDEXEC::operation_state_t;
 
-    using inner_op_t = decltype(beman::execution::connect(
+    using inner_op_t = decltype(STDEXEC::connect(
         std::declval<Sender>(), std::declval<ec_receiver<Receiver>>()));
 
     inner_op_t op_;
 
     op_state(Sender sndr, Receiver rcvr)
-        : op_(beman::execution::connect(
-              std::move(sndr), ec_receiver<Receiver>{std::move(rcvr)})) {}
+        : op_(STDEXEC::connect(std::move(sndr),
+                               ec_receiver<Receiver>{std::move(rcvr)})) {}
 
     op_state(op_state const &) = delete;
     op_state(op_state &&) = delete;
     op_state &operator=(op_state const &) = delete;
     op_state &operator=(op_state &&) = delete;
 
-    void start() noexcept { beman::execution::start(op_); }
+    void start() noexcept { STDEXEC::start(op_); }
   };
 
   template <class Receiver>

@@ -23,8 +23,7 @@
 #include <boost/capy/continuation.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 
-#include <beman/execution/execution.hpp>
-#include <beman/task/task.hpp>
+#include <stdexec/execution.hpp>
 
 #include <coroutine>
 #include <memory_resource>
@@ -67,9 +66,9 @@ struct sender_as_capy_executor {
   bool operator==(sender_as_capy_executor const &) const noexcept = default;
 };
 
-namespace ex = beman::execution;
+namespace ex = STDEXEC;
 
-struct get_sender_executor_t {
+struct get_sender_executor_t : ex::forwarding_query_t {
   constexpr bool query(ex::forwarding_query_t const &) const noexcept {
     return true;
   }
@@ -135,25 +134,12 @@ struct pool_scheduler {
     }
   };
 
-  auto schedule() -> sender { return {ex_}; }
+  auto schedule() const noexcept -> sender { return {ex_}; }
   bool operator==(pool_scheduler const &) const = default;
 };
 
 struct io_env {
-  using scheduler_type = pool_scheduler;
   using allocator_type = std::pmr::polymorphic_allocator<std::byte>;
-
-  sender_executor executor;
-
-  auto query(get_sender_executor_t const &) const noexcept -> sender_executor {
-    return executor;
-  }
-
-  io_env() = default;
-
-  template <typename Env>
-    requires requires(Env const &e) { pool_scheduler{ex::get_scheduler(e)}; }
-  io_env(Env const &e) : executor(pool_scheduler{ex::get_scheduler(e)}.ex_) {}
 };
 
 #endif

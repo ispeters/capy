@@ -15,7 +15,7 @@
 #include <boost/capy/ex/io_env.hpp>
 #include <boost/capy/io_result.hpp>
 
-#include <beman/execution/execution.hpp>
+#include <stdexec/execution.hpp>
 
 #include <coroutine>
 #include <exception>
@@ -37,15 +37,13 @@ struct operation_cancelled {};
 struct bridge_env {
   std::stop_token st_;
 
-  auto query(beman::execution::get_stop_token_t const &) const noexcept {
-    return st_;
-  }
+  auto query(STDEXEC::get_stop_token_t const &) const noexcept { return st_; }
 };
 
 template <class Sender>
 using sender_single_value_t =
-    beman::execution::value_types_of_t<Sender, bridge_env, std::tuple,
-                                       std::type_identity_t>;
+    STDEXEC::value_types_of_t<Sender, bridge_env, std::tuple,
+                              std::type_identity_t>;
 
 // Detect whether a sender can complete with
 // set_error(std::error_code).
@@ -55,7 +53,7 @@ template <class Sender> struct has_error_code_completion {
   };
 
   static constexpr bool value =
-      beman::execution::error_types_of_t<Sender, bridge_env, checker>::value;
+      STDEXEC::error_types_of_t<Sender, bridge_env, checker>::value;
 };
 
 template <class Sender>
@@ -83,7 +81,7 @@ using result_variant = std::conditional_t<HasEc, ec_result_variant<ValueTuple>,
 // completion result and posts the coroutine
 // handle back through the Capy executor.
 template <class ValueTuple, bool HasEc> struct bridge_receiver {
-  using receiver_concept = beman::execution::receiver_t;
+  using receiver_concept = STDEXEC::receiver_t;
 
   result_variant<ValueTuple, HasEc> *result_;
   continuation cont_;
@@ -119,7 +117,7 @@ template <class ValueTuple, bool HasEc> struct bridge_receiver {
 
 } // namespace detail
 
-/** Awaitable that bridges a beman::execution
+/** Awaitable that bridges a STDEXEC
     sender into a Capy coroutine.
 
     Satisfies IoAwaitable. When co_awaited inside
@@ -137,7 +135,7 @@ template <class ValueTuple, bool HasEc> struct bridge_receiver {
     await_resume returns the value directly and
     genuine exceptions are rethrown.
 
-    @tparam Sender The beman::execution sender
+    @tparam Sender The STDEXEC sender
         type.
 */
 template <class Sender> struct [[nodiscard]] sender_awaitable {
@@ -146,7 +144,7 @@ template <class Sender> struct [[nodiscard]] sender_awaitable {
   using value_tuple = detail::sender_single_value_t<Sender>;
   using variant_type = detail::result_variant<value_tuple, has_ec>;
   using receiver_type = detail::bridge_receiver<value_tuple, has_ec>;
-  using op_state_type = decltype(beman::execution::connect(
+  using op_state_type = decltype(STDEXEC::connect(
       std::declval<Sender>(), std::declval<receiver_type>()));
 
   Sender sndr_;
@@ -175,11 +173,10 @@ template <class Sender> struct [[nodiscard]] sender_awaitable {
 
   std::coroutine_handle<> await_suspend(std::coroutine_handle<> h,
                                         io_env const *env) {
-    ::new (op_buf_) op_state_type(beman::execution::connect(
-        std::move(sndr_), receiver_type{&result_, {h}, env}));
+    ::new (op_buf_) op_state_type(
+        STDEXEC::connect(std::move(sndr_), receiver_type{&result_, {h}, env}));
     op_constructed_ = true;
-    beman::execution::start(
-        *std::launder(reinterpret_cast<op_state_type *>(op_buf_)));
+    STDEXEC::start(*std::launder(reinterpret_cast<op_state_type *>(op_buf_)));
     return std::noop_coroutine();
   }
 
@@ -244,7 +241,7 @@ private:
 };
 
 /** Create an IoAwaitable from a
-    beman::execution sender.
+    STDEXEC sender.
 
     If the sender can complete with
     set_error(std::error_code), the returned
@@ -257,8 +254,8 @@ private:
     capy::task<int> compute(auto sched)
     {
         auto result = co_await await_sender(
-            beman::execution::schedule(sched)
-                | beman::execution::then(
+            STDEXEC::schedule(sched)
+                | STDEXEC::then(
                     [] { return 42; }));
         co_return result;
     }
