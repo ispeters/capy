@@ -12,17 +12,12 @@
 
 #include <boost/capy/buffers.hpp>
 
+#include "task_scheduler_adapter.hpp"
+
 #include <exec/function.hpp>
 #include <stdexec/execution.hpp>
 
 #include <utility>
-
-struct task_scheduler_adaptor : STDEXEC::task_scheduler {
-  template <STDEXEC::scheduler Sched>
-    requires STDEXEC::__not_decays_to<Sched, task_scheduler_adaptor>
-  task_scheduler_adaptor(Sched sched)
-      : STDEXEC::task_scheduler(std::move(sched)) {}
-};
 
 /// Standalone value-type erased sender stream.
 ///

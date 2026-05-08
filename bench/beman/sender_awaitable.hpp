@@ -30,215 +30,253 @@ namespace boost::capy {
 
 namespace detail {
 
-struct stopped_t {};
-
-struct operation_cancelled {};
-
-struct bridge_env {
-  std::stop_token st_;
-
-  auto query(STDEXEC::get_stop_token_t const &) const noexcept { return st_; }
-};
-
-template <class Sender>
-using sender_single_value_t =
-    STDEXEC::value_types_of_t<Sender, bridge_env, std::tuple,
-                              std::type_identity_t>;
-
-// Detect whether a sender can complete with
-// set_error(std::error_code).
-template <class Sender> struct has_error_code_completion {
-  template <class... Es> struct checker {
-    static constexpr bool value = (std::is_same_v<Es, std::error_code> || ...);
+template <class T> struct result {
+  union {
+    T value_;
+    std::exception_ptr error_;
   };
 
-  static constexpr bool value =
-      STDEXEC::error_types_of_t<Sender, bridge_env, checker>::value;
-};
+  enum class type { value, error, stopped, empty };
 
-template <class Sender>
-constexpr bool has_error_code_v = has_error_code_completion<Sender>::value;
+  type type_{type::empty};
 
-// Variant when sender can complete with
-// set_error(error_code): separate slot so
-// error_code is not wrapped in exception_ptr.
-template <class ValueTuple>
-using ec_result_variant =
-    std::variant<std::monostate, ValueTuple, std::error_code,
-                 std::exception_ptr, stopped_t>;
+  result() noexcept {}
 
-// Variant when sender does not complete with
-// set_error(error_code).
-template <class ValueTuple>
-using no_ec_result_variant =
-    std::variant<std::monostate, ValueTuple, std::exception_ptr, stopped_t>;
-
-template <class ValueTuple, bool HasEc>
-using result_variant = std::conditional_t<HasEc, ec_result_variant<ValueTuple>,
-                                          no_ec_result_variant<ValueTuple>>;
-
-// Bridge receiver that stores the sender's
-// completion result and posts the coroutine
-// handle back through the Capy executor.
-template <class ValueTuple, bool HasEc> struct bridge_receiver {
-  using receiver_concept = STDEXEC::receiver_t;
-
-  result_variant<ValueTuple, HasEc> *result_;
-  continuation cont_;
-  io_env const *env_;
-
-  auto get_env() const noexcept -> bridge_env { return {env_->stop_token}; }
-
-  template <class... Args> void set_value(Args &&...args) && noexcept {
-    result_->template emplace<1>(std::forward<Args>(args)...);
-    env_->executor.post(cont_);
+  ~result() {
+    if (type_ == type::value) {
+      std::destroy_at(&value_);
+    } else if (type_ == type::error) {
+      std::destroy_at(&error_);
+    }
   }
 
-  template <class E> void set_error(E &&e) && noexcept {
-    if constexpr (HasEc && std::is_same_v<std::decay_t<E>, std::error_code>)
-      result_->template emplace<2>(std::forward<E>(e));
-    else if constexpr (std::is_same_v<std::decay_t<E>, std::exception_ptr>) {
-      constexpr auto idx = HasEc ? 3 : 2;
-      result_->template emplace<idx>(std::forward<E>(e));
+  T &&value() && {
+    if (type_ == type::value) {
+      return std::move(value_);
+    } else if (type_ == type::error) {
+      std::rethrow_exception(std::move(error_));
     } else {
-      constexpr auto idx = HasEc ? 3 : 2;
-      result_->template emplace<idx>(
-          std::make_exception_ptr(std::forward<E>(e)));
+      throw std::runtime_error("no value");
     }
-    env_->executor.post(cont_);
+  }
+
+  void set_value(T &&t) noexcept {
+    try {
+      new (&value_) T(std::move(t));
+      type_ = type::value;
+    } catch (...) {
+      set_error(std::current_exception());
+    }
+  }
+
+  void set_error(std::exception_ptr e) noexcept {
+    new (&error_) std::exception_ptr(std::move(e));
+    type_ = type::error;
+  }
+
+  void set_stopped() noexcept { type_ = type::stopped; }
+};
+
+template <> struct result<void> {
+  union {
+    std::exception_ptr error_;
+  };
+
+  enum class type { value, error, stopped, empty };
+
+  type type_{type::empty};
+
+  result() noexcept {}
+
+  ~result() {
+    if (type_ == type::error) {
+      std::destroy_at(&error_);
+    }
+  }
+
+  void value() && {
+    if (type_ == type::value) {
+      return;
+    } else if (type_ == type::error) {
+      std::rethrow_exception(std::move(error_));
+    } else {
+      throw std::runtime_error("no value");
+    }
+  }
+
+  void set_value() noexcept { type_ = type::value; }
+
+  void set_error(std::exception_ptr e) noexcept {
+    new (&error_) std::exception_ptr(std::move(e));
+    type_ = type::error;
+  }
+
+  void set_stopped() noexcept { type_ = type::stopped; }
+};
+
+struct io_env_env {
+  const boost::capy::io_env *env_;
+
+  struct scheduler {
+    using scheduler_concept = STDEXEC::scheduler_tag;
+
+    const boost::capy::io_env *env_;
+
+    template <class Receiver> struct op {
+      using operation_state_concept = STDEXEC::operation_state_tag;
+
+      class promise {
+        void (*resume_)(void *) noexcept = resume;
+        void (*destroy_)(void *) noexcept = [](void *) noexcept {};
+        Receiver rcvr_;
+
+        static void resume(void *p) noexcept {
+          STDEXEC::set_value(std::move(static_cast<promise *>(p)->rcvr_));
+        }
+
+      public:
+        explicit promise(Receiver rcvr) noexcept : rcvr_(std::move(rcvr)) {}
+      };
+
+      const boost::capy::io_env *env_;
+      promise promise_;
+      boost::capy::continuation cont_{
+          std::coroutine_handle<>::from_address(&promise_)};
+
+      explicit op(const boost::capy::io_env *env, Receiver rcvr) noexcept
+          : env_(env), promise_(std::move(rcvr)) {}
+
+      op(op &&) = delete;
+
+      ~op() = default;
+
+      void start() & noexcept { env_->executor.post(cont_); }
+    };
+
+    struct sender {
+      using sender_concept = STDEXEC::sender_tag;
+
+      const boost::capy::io_env *env_;
+
+      template <class Sender, class... Env>
+      static consteval auto get_completion_signatures() noexcept {
+        return STDEXEC::completion_signatures<STDEXEC::set_value_t()>{};
+      }
+
+      template <class Receiver>
+      op<std::remove_cvref_t<Receiver>> connect(Receiver rcvr) const noexcept {
+        return op<std::remove_cvref_t<Receiver>>(env_, std::move(rcvr));
+      }
+    };
+
+    auto schedule() const noexcept { return sender{env_}; }
+
+    friend bool operator==(scheduler, scheduler) noexcept = default;
+  };
+
+  std::pmr::polymorphic_allocator<std::byte>
+  query(exec::get_frame_allocator_t) const noexcept {
+    return std::pmr::polymorphic_allocator<std::byte>(env_->frame_allocator);
+  }
+
+  template <class Query>
+    requires STDEXEC::__one_of<Query, STDEXEC::get_scheduler_t,
+                               STDEXEC::get_start_scheduler_t>
+  scheduler query(Query) const noexcept {
+    return scheduler{env_};
+  }
+};
+
+template <class T> struct receiver {
+  using receiver_concept = STDEXEC::receiver_tag;
+
+  io_env_env env_;
+  result<T> *result_;
+  std::coroutine_handle<> coro_;
+
+  template <class... Values>
+    requires(sizeof...(Values) == !std::is_void_v<T>)
+  void set_value(Values &&...values) && noexcept {
+    result_->set_value(std::forward<Values>(values)...);
+    coro_.resume();
+  }
+
+  void set_error(std::exception_ptr e) && noexcept {
+    result_->set_error(std::move(e));
+    coro_.resume();
   }
 
   void set_stopped() && noexcept {
-    constexpr auto idx = HasEc ? 4 : 3;
-    result_->template emplace<idx>(stopped_t{});
-    env_->executor.post(cont_);
+    result_->set_stopped();
+    coro_.resume();
   }
+
+  auto get_env() const noexcept { return env_; }
 };
 
-} // namespace detail
+template <class... T> struct _value_t {
+  using type = std::tuple<T...>;
+};
 
-/** Awaitable that bridges a STDEXEC
-    sender into a Capy coroutine.
+template <class T> struct _value_t<T> {
+  using type = T;
+};
 
-    Satisfies IoAwaitable. When co_awaited inside
-    a capy::task, connects the sender to a bridge
-    receiver, starts the operation, and resumes
-    the coroutine on the caller's executor when
-    the sender completes.
+template <> struct _value_t<> {
+  using type = void;
+};
 
-    The bridge inspects the sender's error
-    completion signatures at compile time. If the
-    sender can complete with
-    set_error(std::error_code), await_resume
-    returns io_result so the error code is a
-    value, not an exception. Otherwise
-    await_resume returns the value directly and
-    genuine exceptions are rethrown.
+template <class... T> using value_t = _value_t<T...>::type;
 
-    @tparam Sender The STDEXEC sender
-        type.
-*/
-template <class Sender> struct [[nodiscard]] sender_awaitable {
-  static constexpr bool has_ec = detail::has_error_code_v<Sender>;
+template <class Sender>
+using sender_result_t = STDEXEC::value_types_of_t<Sender, io_env_env, value_t,
+                                                  std::type_identity_t>;
 
-  using value_tuple = detail::sender_single_value_t<Sender>;
-  using variant_type = detail::result_variant<value_tuple, has_ec>;
-  using receiver_type = detail::bridge_receiver<value_tuple, has_ec>;
-  using op_state_type = decltype(STDEXEC::connect(
-      std::declval<Sender>(), std::declval<receiver_type>()));
-
+template <class Sender> class awaitable {
   Sender sndr_;
-  variant_type result_{};
+  using result_t = sender_result_t<Sender>;
+  using op_t = STDEXEC::connect_result_t<Sender, receiver<result_t>>;
 
-  alignas(op_state_type) unsigned char op_buf_[sizeof(op_state_type)];
-  bool op_constructed_ = false;
+  result<result_t> result_;
+  union {
+    op_t op_;
+  };
+  bool started_{false};
 
-  explicit sender_awaitable(Sender sndr) : sndr_(std::move(sndr)) {}
+public:
+  awaitable(Sender &&sndr) noexcept : sndr_(std::move(sndr)) {}
 
-  sender_awaitable(sender_awaitable &&o) noexcept(
-      std::is_nothrow_move_constructible_v<Sender>)
-      : sndr_(std::move(o.sndr_)) {}
+  awaitable(const Sender &sndr) noexcept : sndr_(sndr) {}
 
-  sender_awaitable(sender_awaitable const &) = delete;
-  sender_awaitable &operator=(sender_awaitable const &) = delete;
-  sender_awaitable &operator=(sender_awaitable &&) = delete;
+  awaitable(awaitable &&other) noexcept : sndr_(std::move(other).sndr_) {}
 
-  ~sender_awaitable() {
-    if (op_constructed_)
-      std::launder(reinterpret_cast<op_state_type *>(op_buf_))
-          ->~op_state_type();
-  }
-
-  bool await_ready() const noexcept { return false; }
-
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<> h,
-                                        io_env const *env) {
-    ::new (op_buf_) op_state_type(
-        STDEXEC::connect(std::move(sndr_), receiver_type{&result_, {h}, env}));
-    op_constructed_ = true;
-    STDEXEC::start(*std::launder(reinterpret_cast<op_state_type *>(op_buf_)));
-    return std::noop_coroutine();
-  }
-
-  auto await_resume() {
-    if constexpr (has_ec)
-      return await_resume_ec();
-    else
-      return await_resume_no_ec();
-  }
-
-private:
-  // Sender can complete with
-  // set_error(error_code). Return io_result
-  // so the error code is a value, not an
-  // exception.
-  auto await_resume_ec() {
-    // exception_ptr at index 3
-    if (result_.index() == 3)
-      std::rethrow_exception(std::get<3>(result_));
-
-    if constexpr (std::tuple_size_v<value_tuple> == 0) {
-      // stopped at index 4
-      if (result_.index() == 4)
-        return io_result<>{make_error_code(error::canceled)};
-      if (result_.index() == 2)
-        return io_result<>{std::get<2>(result_)};
-      return io_result<>{};
-    } else if constexpr (std::tuple_size_v<value_tuple> == 1) {
-      using T = std::tuple_element_t<0, value_tuple>;
-      if (result_.index() == 4)
-        return io_result<T>{make_error_code(error::canceled)};
-      if (result_.index() == 2)
-        return io_result<T>{std::get<2>(result_)};
-      return io_result<T>{{}, std::get<0>(std::get<1>(std::move(result_)))};
-    } else {
-      if (result_.index() == 4)
-        return io_result<value_tuple>{make_error_code(error::canceled)};
-      if (result_.index() == 2)
-        return io_result<value_tuple>{std::get<2>(result_)};
-      return io_result<value_tuple>{{}, std::get<1>(std::move(result_))};
+  ~awaitable() {
+    if (started_) {
+      std::destroy_at(&op_);
     }
   }
 
-  // Sender does not complete with
-  // set_error(error_code). Return the value
-  // directly; rethrow exceptions.
-  auto await_resume_no_ec() {
-    // exception_ptr at index 2
-    if (result_.index() == 2)
-      std::rethrow_exception(std::get<2>(result_));
-    // stopped at index 3
-    if (result_.index() == 3)
-      throw detail::operation_cancelled{};
+  constexpr bool await_ready() const noexcept { return false; }
 
-    if constexpr (std::tuple_size_v<value_tuple> == 0)
-      return;
-    else if constexpr (std::tuple_size_v<value_tuple> == 1)
-      return std::get<0>(std::get<1>(std::move(result_)));
-    else
-      return std::get<1>(std::move(result_));
+  template <class Promise>
+  std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> h,
+                                        const boost::capy::io_env *env) {
+    static_assert(!std::is_void_v<Promise>);
+
+    new ((void *)&op_) op_t(STDEXEC::connect(
+        std::move(sndr_), receiver<result_t>{env, &result_, h}));
+
+    STDEXEC::start(op_);
+
+    started_ = true;
+
+    return std::noop_coroutine();
   }
+
+  decltype(auto) await_resume() noexcept { return std::move(result_).value(); }
 };
+
+} // namespace detail
 
 /** Create an IoAwaitable from a
     STDEXEC sender.
@@ -266,7 +304,8 @@ private:
         in a capy::task.
 */
 template <class Sender> auto await_sender(Sender &&sndr) {
-  return sender_awaitable<std::decay_t<Sender>>(std::forward<Sender>(sndr));
+  return detail::awaitable<std::remove_cvref_t<Sender>>{
+      std::forward<Sender>(sndr)};
 }
 
 } // namespace boost::capy

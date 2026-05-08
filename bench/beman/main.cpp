@@ -24,6 +24,7 @@
 //
 
 #include "allocation_tracker.hpp"
+#include "io_awaitable_adapter.hpp"
 #include "ioaw_io_read_stream.hpp"
 #include "ioaw_read_stream.hpp"
 #include "sender_awaitable.hpp"
@@ -226,44 +227,31 @@ int main() {
   // Col B: Sender (via await_sender bridge)
 
   // Native — sndr_read_stream
-#if 0 // currently broken
   {
-    sender_thread_pool pool(1);
-    auto ex = pool.get_executor();
-    bench_context ctx;
-    sender_as_capy_executor adapter{ex, &ctx};
+    capy::thread_pool pool(1);
     sndr_read_stream stream;
-    capy::run_async(adapter)(capy_accept_sndr(stream, grid[0][0][1]));
+    capy::run_async(pool.get_executor())(
+        capy_accept_sndr(stream, grid[0][0][1]));
     pool.join();
   }
-#endif
 
   // Abstract — sndr_io_read_stream
-#if 0 // currently broken
   {
-    sender_thread_pool pool(1);
-    auto ex = pool.get_executor();
-    bench_context ctx;
-    sender_as_capy_executor adapter{ex, &ctx};
+    capy::thread_pool pool(1);
     sndr_io_read_stream_impl stream;
-    capy::run_async(adapter)(capy_accept_sndr(
+    capy::run_async(pool.get_executor())(capy_accept_sndr(
         static_cast<sndr_io_read_stream &>(stream), grid[0][1][1]));
     pool.join();
   }
-#endif
 
   // Type erased — sndr_any_read_stream
-#if 0 // currently broken
   {
-    sender_thread_pool pool(1);
-    auto ex = pool.get_executor();
-    bench_context ctx;
-    sender_as_capy_executor adapter{ex, &ctx};
+    capy::thread_pool pool(1);
     sndr_any_read_stream stream(sndr_read_stream{});
-    capy::run_async(adapter)(capy_accept_sndr(stream, grid[0][2][1]));
+    capy::run_async(pool.get_executor())(
+        capy_accept_sndr(stream, grid[0][2][1]));
     pool.join();
   }
-#endif
 
   // ---------------------------------------------------------------
   // Table 2: beman::execution::task (bex::task<void, io_env>)
@@ -427,34 +415,30 @@ int main() {
         after - before};
   }
 
-// Type erased — capy::any_read_stream
-#if 0 // we don't support capy::any_read_stream
+  // Type erased — capy::any_read_stream
   {
-    sender_thread_pool pool(1);
     ioaw_read_stream concrete;
     capy::any_read_stream stream(&concrete);
-    pool_scheduler sched{pool.get_executor()};
+
+    std::pmr::polymorphic_allocator<std::byte> alloc(
+        capy::get_recycling_memory_resource());
+
     char buf[64];
     auto before = g_alloc_count.load(std::memory_order_relaxed);
     auto start = std::chrono::steady_clock::now();
-    bex::sync_wait(bex::starts_on(
-        sched,
-        exec::repeat_n(
-            bex::let_value(bex::just(),
-                           [&]() {
-                             return stream.read_some(capy::mutable_buffer(
-                                        buf, sizeof(buf))) |
-                                    bex::then([](auto &&...) noexcept {});
-                           }),
-            kOps)));
-    pool.join();
+    bex::sync_wait(bex::write_env(
+        exec::repeat_n(ioaw_adapter{stream.read_some(
+                           capy::mutable_buffer(buf, sizeof(buf)))} |
+                           bex::then([](auto &&...) noexcept {}),
+                       kOps),
+        bex::prop(exec::get_frame_allocator, alloc)));
+
     auto elapsed = std::chrono::steady_clock::now() - start;
     auto after = g_alloc_count.load(std::memory_order_relaxed);
     grid[2][2][1] = {
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
         after - before};
   }
-#endif
 
   // ---------------------------------------------------------------
   // Print results

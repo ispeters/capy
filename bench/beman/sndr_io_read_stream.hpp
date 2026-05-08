@@ -11,6 +11,7 @@
 #define BOOST_CAPY_BENCH_SNDR_IO_READ_STREAM_HPP
 
 #include "sndr_read_stream.hpp"
+#include "task_scheduler_adapter.hpp"
 
 #include <boost/capy/buffers.hpp>
 
@@ -19,9 +20,7 @@
 
 /// Abstract interface for sender-based read streams.
 struct sndr_io_read_stream {
-  // using sched_t =
-  // decltype(std::declval<STDEXEC::run_loop>().get_scheduler());
-  using sched_t = STDEXEC::task_scheduler;
+  using sched_t = task_scheduler_adaptor;
 
   using read_some_t =
       exec::function<std::size_t(boost::capy::mutable_buffer),
