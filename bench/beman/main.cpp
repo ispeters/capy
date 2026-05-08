@@ -26,7 +26,6 @@
 #include "allocation_tracker.hpp"
 #include "ioaw_io_read_stream.hpp"
 #include "ioaw_read_stream.hpp"
-// #include "repeat_n.hpp"
 #include "sender_awaitable.hpp"
 #include "sender_io_env.hpp"
 #include "sndr_any_read_stream.hpp"
@@ -199,17 +198,14 @@ int main() {
   // ---------------------------------------------------------------
 
   // Native — ioaw_read_stream
-#if 1
   {
     capy::thread_pool pool(1);
     ioaw_read_stream stream;
     capy::run_async(pool.get_executor())(capy_accept(stream, grid[0][0][0]));
     pool.join();
   }
-#endif
 
   // Abstract — ioaw_io_read_stream
-#if 1
   {
     capy::thread_pool pool(1);
     ioaw_io_read_stream_impl stream;
@@ -217,10 +213,8 @@ int main() {
         capy_accept(static_cast<ioaw_io_read_stream &>(stream), grid[0][1][0]));
     pool.join();
   }
-#endif
 
   // Type erased — capy::any_read_stream
-#if 1
   {
     capy::thread_pool pool(1);
     ioaw_read_stream concrete;
@@ -228,12 +222,11 @@ int main() {
     capy::run_async(pool.get_executor())(capy_accept(stream, grid[0][2][0]));
     pool.join();
   }
-#endif
 
   // Col B: Sender (via await_sender bridge)
 
   // Native — sndr_read_stream
-#if 0
+#if 0 // currently broken
   {
     sender_thread_pool pool(1);
     auto ex = pool.get_executor();
@@ -246,7 +239,7 @@ int main() {
 #endif
 
   // Abstract — sndr_io_read_stream
-#if 0
+#if 0 // currently broken
   {
     sender_thread_pool pool(1);
     auto ex = pool.get_executor();
@@ -260,7 +253,7 @@ int main() {
 #endif
 
   // Type erased — sndr_any_read_stream
-#if 0
+#if 0 // currently broken
   {
     sender_thread_pool pool(1);
     auto ex = pool.get_executor();
@@ -287,7 +280,6 @@ int main() {
 #endif
 
   // Abstract — sndr_io_read_stream
-#if 1
   {
     sndr_io_read_stream_impl stream;
     auto *mr = capy::get_recycling_memory_resource();
@@ -295,22 +287,18 @@ int main() {
                               grid[1][1][0], std::allocator_arg,
                               std::pmr::polymorphic_allocator<std::byte>(mr)));
   }
-#endif
 
   // Type erased — sndr_any_read_stream
-#if 1
   {
     sndr_any_read_stream stream(sndr_read_stream{});
     auto *mr = capy::get_recycling_memory_resource();
     bex::sync_wait(bex_accept(stream, grid[1][2][0], std::allocator_arg,
                               std::pmr::polymorphic_allocator<std::byte>(mr)));
   }
-#endif
 
   // Col B: Awaitable (via as_sender bridge)
 
   // Native — ioaw_read_stream
-#if 1
   {
     ioaw_read_stream stream;
     auto *mr = capy::get_recycling_memory_resource();
@@ -318,10 +306,8 @@ int main() {
         bex_accept_ioaw(stream, grid[1][0][1], std::allocator_arg,
                         std::pmr::polymorphic_allocator<std::byte>(mr)));
   }
-#endif
 
   // Abstract — ioaw_io_read_stream
-#if 1
   {
     ioaw_io_read_stream_impl stream;
     auto *mr = capy::get_recycling_memory_resource();
@@ -329,7 +315,6 @@ int main() {
         static_cast<ioaw_io_read_stream &>(stream), grid[1][1][1],
         std::allocator_arg, std::pmr::polymorphic_allocator<std::byte>(mr)));
   }
-#endif
 
   // Type erased — capy::any_read_stream
 #if 0 // we don't support capy::any_read_stream
@@ -367,7 +352,6 @@ int main() {
   };
 
   // Native — sndr_read_stream
-#if 1
   {
     sndr_read_stream stream;
     char buf[64];
@@ -382,10 +366,8 @@ int main() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
         after - before};
   }
-#endif
 
-// Abstract — sndr_io_read_stream
-#if 1
+  // Abstract — sndr_io_read_stream
   {
     sndr_io_read_stream_impl stream;
     char buf[64];
@@ -399,10 +381,8 @@ int main() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
         after - before};
   }
-#endif
 
-// Type erased — sndr_any_read_stream
-#if 1
+  // Type erased — sndr_any_read_stream
   {
     sndr_any_read_stream stream(sndr_read_stream{});
     char buf[64];
@@ -415,12 +395,10 @@ int main() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
         after - before};
   }
-#endif
 
-// Col B: Awaitable (via as_sender bridge)
+  // Col B: Awaitable (via as_sender bridge)
 
-// Native — ioaw_read_stream
-#if 1
+  // Native — ioaw_read_stream
   {
     ioaw_read_stream stream;
     char buf[64];
@@ -433,10 +411,8 @@ int main() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
         after - before};
   }
-#endif
 
-// Abstract — ioaw_io_read_stream
-#if 1
+  // Abstract — ioaw_io_read_stream
   {
     ioaw_io_read_stream_impl stream;
     char buf[64];
@@ -450,7 +426,6 @@ int main() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count(),
         after - before};
   }
-#endif
 
 // Type erased — capy::any_read_stream
 #if 0 // we don't support capy::any_read_stream
