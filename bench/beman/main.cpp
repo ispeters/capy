@@ -255,7 +255,7 @@ int main() {
   }
 
   // ---------------------------------------------------------------
-  // Table 2: beman::execution::task (bex::task<void, io_env>)
+  // Table 2: std::execution::task (bex::task<void>)
   // ---------------------------------------------------------------
 
   // Native — sndr_read_stream
@@ -489,7 +489,7 @@ int main() {
   print_table("capy::task", 0, "A: awaitable", "B: sender (bridge)",
               ioaw_labels, true);
 
-  print_table("beman::execution::task", 1, "A: sender (native)",
+  print_table("std::execution::task", 1, "A: sender (native)",
               "B: awaitable (bridge)", sndr_labels, true);
 
   print_table("sender/receiver pipeline", 2, "A: sender (native)",
