@@ -22,8 +22,8 @@ if(BOOST_CAPY_BUILD_P2300_EXAMPLES)
     include(FetchContent)
     FetchContent_Declare(
         stdexec-task
-        GIT_REPOSITORY https://github.com/ispeters/stdexec
-        GIT_TAG capy_bench_integration
+	GIT_REPOSITORY https://github.com/NVIDIA/stdexec
+        GIT_TAG main
         SYSTEM
         FIND_PACKAGE_ARGS
             NAMES stdexec.task
