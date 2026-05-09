@@ -28,7 +28,6 @@
 #include "ioaw_io_read_stream.hpp"
 #include "ioaw_read_stream.hpp"
 #include "sender_awaitable.hpp"
-#include "sender_io_env.hpp"
 #include "sndr_any_read_stream.hpp"
 #include "sndr_io_read_stream.hpp"
 #include "sndr_read_stream.hpp"
