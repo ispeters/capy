@@ -160,17 +160,19 @@ auto bex_accept(Stream &stream, cell_result &out, std::allocator_arg_t,
 
 template <class Stream>
 auto bex_session_ioaw(Stream &stream, std::allocator_arg_t,
-                      std::pmr::polymorphic_allocator<std::byte>)
-    -> bex::task<void, io_env> {
+                      std::pmr::polymorphic_allocator<std::byte> alloc)
+    -> bex::task<void> {
   char buf[64];
   for (int i = 0; i < kInner; ++i)
-    (void)co_await stream.read_some(capy::mutable_buffer(buf, sizeof(buf)));
+    (void)co_await bex::write_env(
+        ioaw_adapter{stream.read_some(capy::mutable_buffer(buf, sizeof(buf)))},
+        bex::prop(exec::get_frame_allocator, alloc));
 }
 
 template <class Stream>
 auto bex_accept_ioaw(Stream &stream, cell_result &out, std::allocator_arg_t,
                      std::pmr::polymorphic_allocator<std::byte> alloc)
-    -> bex::task<void, io_env> {
+    -> bex::task<void> {
   auto before = g_alloc_count.load(std::memory_order_relaxed);
   auto start = std::chrono::steady_clock::now();
 
@@ -303,7 +305,6 @@ int main() {
   }
 
   // Type erased — capy::any_read_stream
-#if 0 // we don't support capy::any_read_stream
   {
     ioaw_read_stream concrete;
     capy::any_read_stream stream(&concrete);
@@ -312,7 +313,6 @@ int main() {
         bex_accept_ioaw(stream, grid[1][2][1], std::allocator_arg,
                         std::pmr::polymorphic_allocator<std::byte>(mr)));
   }
-#endif
 
   // ---------------------------------------------------------------
   // Table 3: sender/receiver pipeline (repeat_n)
