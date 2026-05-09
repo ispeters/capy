@@ -127,7 +127,7 @@ capy::task<> capy_accept_sndr(Stream &stream, cell_result &out) {
 template <class Stream>
 auto bex_session(Stream &stream, std::allocator_arg_t,
                  std::pmr::polymorphic_allocator<std::byte> alloc)
-    -> bex::task<void, io_env> {
+    -> bex::task<void> {
   char buf[64];
   for (int i = 0; i < kInner; ++i)
     (void)co_await STDEXEC::write_env(
@@ -138,7 +138,7 @@ auto bex_session(Stream &stream, std::allocator_arg_t,
 template <class Stream>
 auto bex_accept(Stream &stream, cell_result &out, std::allocator_arg_t,
                 std::pmr::polymorphic_allocator<std::byte> alloc)
-    -> bex::task<void, io_env> {
+    -> bex::task<void> {
   auto before = g_alloc_count.load(std::memory_order_relaxed);
   auto start = std::chrono::steady_clock::now();
 
@@ -258,14 +258,12 @@ int main() {
   // ---------------------------------------------------------------
 
   // Native — sndr_read_stream
-#if 0 // currently broken
   {
     sndr_read_stream stream;
     auto *mr = capy::get_recycling_memory_resource();
     bex::sync_wait(bex_accept(stream, grid[1][0][0], std::allocator_arg,
                               std::pmr::polymorphic_allocator<std::byte>(mr)));
   }
-#endif
 
   // Abstract — sndr_io_read_stream
   {
