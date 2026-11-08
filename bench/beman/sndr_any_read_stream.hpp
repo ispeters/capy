@@ -29,7 +29,7 @@ class sndr_any_read_stream {
   using sched_t = task_scheduler_adaptor;
 
   using read_some_t = exec::function<
-      std::size_t(boost::capy::mutable_buffer),
+      std::size_t(boost::capy::mutable_buffer) &,
       exec::queries<sched_t(STDEXEC::get_start_scheduler_t) noexcept,
                     std::pmr::polymorphic_allocator<std::byte>(
                         exec::get_frame_allocator_t) noexcept>>;
@@ -47,9 +47,9 @@ public:
   explicit sndr_any_read_stream(Stream s)
       : stream_(new Stream(std::move(s))),
         read_some_([](void *stor, boost::capy::mutable_buffer buf) noexcept {
-          return read_some_t(std::move(buf),
-                             [stor](boost::capy::mutable_buffer buf) noexcept {
-                               auto &stream = *static_cast<Stream *>(stor);
+          auto &stream = *static_cast<Stream *>(stor);
+          return read_some_t(stream, std::move(buf),
+                             [](auto& stream, boost::capy::mutable_buffer buf) noexcept {
                                return stream.read_some(buf);
                              });
         }),

@@ -9,8 +9,8 @@
 struct task_scheduler_adaptor : STDEXEC::task_scheduler {
   template <STDEXEC::scheduler Sched>
     requires STDEXEC::__not_decays_to<Sched, task_scheduler_adaptor>
-  task_scheduler_adaptor(Sched sched)
-      : STDEXEC::task_scheduler(std::move(sched)) {}
+  task_scheduler_adaptor(Sched&& sched) noexcept
+      : STDEXEC::task_scheduler(std::forward<Sched>(sched)) {}
 };
 
 #endif

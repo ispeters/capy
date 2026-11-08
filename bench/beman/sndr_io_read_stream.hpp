@@ -23,7 +23,7 @@ struct sndr_io_read_stream {
   using sched_t = task_scheduler_adaptor;
 
   using read_some_t =
-      exec::function<std::size_t(boost::capy::mutable_buffer),
+      exec::function<std::size_t(boost::capy::mutable_buffer) &,
                      exec::queries<sched_t(STDEXEC::get_scheduler_t) noexcept,
                                    std::pmr::polymorphic_allocator<std::byte>(
                                        exec::get_frame_allocator_t) noexcept>>;
@@ -36,8 +36,8 @@ struct sndr_io_read_stream_impl : sndr_io_read_stream {
   sndr_read_stream stream_;
 
   read_some_t read_some(boost::capy::mutable_buffer buf) override {
-    return read_some_t(std::move(buf), [this](auto buf) noexcept {
-      return stream_.read_some(buf);
+    return read_some_t(*this, std::move(buf), [](auto& self, auto buf) noexcept {
+      return self.stream_.read_some(buf);
     });
   }
 };
