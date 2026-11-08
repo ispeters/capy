@@ -10,32 +10,36 @@
 #ifndef BOOST_CAPY_BENCH_SNDR_IO_READ_STREAM_HPP
 #define BOOST_CAPY_BENCH_SNDR_IO_READ_STREAM_HPP
 
-#include "sndr_any_read_sender.hpp"
 #include "sndr_read_stream.hpp"
+#include "task_scheduler_adapter.hpp"
 
 #include <boost/capy/buffers.hpp>
 
+#include <exec/function.hpp>
+#include <stdexec/execution.hpp>
+
 /// Abstract interface for sender-based read streams.
-struct sndr_io_read_stream
-{
-    virtual sndr_any_read_sender
-        read_some(boost::capy::mutable_buffer) = 0;
-    virtual ~sndr_io_read_stream() = default;
+struct sndr_io_read_stream {
+  using sched_t = task_scheduler_adaptor;
+
+  using read_some_t =
+      exec::function<std::size_t(boost::capy::mutable_buffer) &,
+                     exec::queries<sched_t(STDEXEC::get_scheduler_t) noexcept,
+                                   std::pmr::polymorphic_allocator<std::byte>(
+                                       exec::get_frame_allocator_t) noexcept>>;
+  virtual read_some_t read_some(boost::capy::mutable_buffer) = 0;
+  virtual ~sndr_io_read_stream() = default;
 };
 
 /// Concrete implementation wrapping sndr_read_stream.
-struct sndr_io_read_stream_impl : sndr_io_read_stream
-{
-    sndr_read_stream stream_;
+struct sndr_io_read_stream_impl : sndr_io_read_stream {
+  sndr_read_stream stream_;
 
-    explicit sndr_io_read_stream_impl(sender_executor ex)
-        : stream_{ex} {}
-
-    sndr_any_read_sender
-        read_some(boost::capy::mutable_buffer buf) override
-    {
-        return sndr_any_read_sender{stream_.read_some(buf)};
-    }
+  read_some_t read_some(boost::capy::mutable_buffer buf) override {
+    return read_some_t(*this, std::move(buf), [](auto& self, auto buf) noexcept {
+      return self.stream_.read_some(buf);
+    });
+  }
 };
 
 #endif

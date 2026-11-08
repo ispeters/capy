@@ -20,101 +20,49 @@
 #ifndef BOOST_CAPY_BENCH_SNDR_READ_STREAM_HPP
 #define BOOST_CAPY_BENCH_SNDR_READ_STREAM_HPP
 
-#include "sender_thread_pool.hpp"
-#include "thread_pool.hpp"
+#include <stdexec/execution.hpp>
 
-#include <beman/execution/execution.hpp>
+#include <exec/completion_behavior.hpp>
 
-#include <coroutine>
 #include <cstddef>
-#include <type_traits>
 #include <utility>
 
-namespace ex = beman::execution;
+namespace ex = STDEXEC;
 
-struct sndr_read_stream
-{
-    sender_executor ex_;
+inline auto make_sender() noexcept {
+  return STDEXEC::read_env(STDEXEC::get_scheduler) |
+         STDEXEC::let_value([](auto sched) noexcept {
+           return STDEXEC::then(STDEXEC::schedule(std::move(sched)),
+                                []() noexcept -> std::size_t { return 0; });
+         });
+}
 
-    struct read_sender
-    {
-        using sender_concept = ex::sender_t;
-        using completion_signatures =
-            ex::completion_signatures<ex::set_value_t(std::size_t)>;
+class sndr_read_stream {
+  using sender_t = decltype(make_sender());
 
-        sender_executor ex_;
+  struct sender {
+    using sender_concept = STDEXEC::sender_tag;
 
-        // awaitable path (co_awaited from io_task via as_awaitable)
-        template <typename Promise>
-        struct awaitable : work_item
-        {
-            sender_executor ex_;
-            std::coroutine_handle<> h_{};
-
-            explicit awaitable(sender_executor ex) noexcept
-                : ex_(ex) {}
-
-            bool await_ready() const noexcept { return false; }
-
-            void await_suspend(std::coroutine_handle<> h)
-            {
-                h_ = h;
-                ex_.enqueue(this);
-            }
-
-            std::size_t await_resume() noexcept { return 0; }
-
-            void execute() noexcept override { h_.resume(); }
-        };
-
-        template <typename Promise>
-        auto as_awaitable(Promise&) -> awaitable<Promise>
-        {
-            return awaitable<Promise>{ex_};
-        }
-
-        // sender path (consumed via ex::connect)
-        template <ex::receiver Receiver>
-        struct op_state : work_item
-        {
-            using operation_state_concept = ex::operation_state_t;
-
-            std::remove_cvref_t<Receiver> rcvr_;
-            sender_executor ex_;
-
-            op_state(Receiver rcvr, sender_executor ex)
-                : rcvr_(std::move(rcvr))
-                , ex_(ex)
-            {}
-
-            op_state(op_state const&) = delete;
-            op_state(op_state&&) = delete;
-            op_state& operator=(op_state const&) = delete;
-            op_state& operator=(op_state&&) = delete;
-
-            void execute() noexcept override
-            {
-                ex::set_value(std::move(rcvr_), std::size_t{0});
-            }
-
-            void start() & noexcept
-            {
-                ex_.enqueue(this);
-            }
-        };
-
-        template <ex::receiver Receiver>
-        auto connect(Receiver&& rcvr)
-            -> op_state<std::remove_cvref_t<Receiver>>
-        {
-            return {std::forward<Receiver>(rcvr), ex_};
-        }
-    };
-
-    read_sender read_some(auto)
-    {
-        return {ex_};
+    template <class Sender, class Env>
+    static consteval auto get_completion_signatures() noexcept {
+      return STDEXEC::completion_signatures_of_t<sender_t, Env>{};
     }
+
+    auto get_env() const noexcept {
+      return STDEXEC::prop(
+          exec::get_completion_behavior_t<STDEXEC::set_value_t>(),
+          exec::completion_behavior::asynchronous);
+    }
+
+    template <class Receiver>
+    auto connect(Receiver rcvr) const
+        noexcept(STDEXEC::__nothrow_connectable<sender_t, Receiver>) {
+      return STDEXEC::connect(make_sender(), std::move(rcvr));
+    }
+  };
+
+public:
+  constexpr auto read_some(auto) noexcept { return sender{}; }
 };
 
 #endif
